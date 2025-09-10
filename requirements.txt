@@ -1,0 +1,11 @@
+fastapi[standard] == 0.116.1
+uvicorn[standard] == 0.35.0
+pydantic-settings == 2.10.1
+
+psycopg[binary] == 3.2.10
+SQLAlchemy == 2.0.43
+alembic == 1.16.5
+
+openai==1.107.1
+
+# pip show pydantic
