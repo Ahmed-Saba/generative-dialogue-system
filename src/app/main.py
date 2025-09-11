@@ -1,0 +1,9 @@
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "Greetings from FastAPI!"}
+
+# uvicorn src.app.main:app --reload
