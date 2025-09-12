@@ -2,10 +2,12 @@ from sqlalchemy import String, DateTime, Boolean, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
-from database import Base
-from .conversation import Conversation
+from app.database.base import Base
 import uuid
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from .conversation import Conversation
 
 class User(Base):
     __tablename__ = "users"

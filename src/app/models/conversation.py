@@ -2,10 +2,14 @@ from sqlalchemy import String, DateTime, ForeignKey, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
-from database import Base
-from .message import Message
+from app.database.base import Base
 from .user import User
 import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .user import User
+    from .message import Message
 
 class Conversation(Base):
     __tablename__ = "conversations"
