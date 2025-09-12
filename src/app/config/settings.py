@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pathlib import Path
 
 class Settings(BaseSettings):
     """
@@ -30,7 +31,8 @@ class Settings(BaseSettings):
         )
 
     class Config:
-        env_file = ".env"
+        # Load environment variables from the .env file located two levels up relative to this file.
+        env_file = str(Path(__file__).parent.parent / ".env")
         env_file_encoding = "utf-8"
 
 settings = Settings()
