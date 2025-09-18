@@ -17,7 +17,8 @@ from app.models import User, Conversation, Message
 
 # Import the application settings instance to access configuration values,
 # including the dynamically constructed DATABASE_URL.
-from app.config.settings import settings
+from app.config import get_settings
+settings = get_settings()
 
 from logging.config import fileConfig
 
