@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from pathlib import Path
 
 class Settings(BaseSettings):
@@ -62,11 +63,15 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_DB}"
         )
 
-    class Config:
-        # Load environment variables from the .env file located two levels up relative to this file.
-        env_file = str(Path(__file__).parent.parent / ".env")
-        env_file_encoding = "utf-8"
+    # class Config:
+    #     env_file = str(Path(__file__).parent.parent / ".env")
+    #     env_file_encoding = "utf-8"
 
+    model_config = ConfigDict(
+        # Load environment variables from the .env file located two levels up relative to this file.
+        env_file=str(Path(__file__).parent.parent / ".env"),
+        env_file_encoding="utf-8"
+    )
 
 def get_settings() -> Settings:
     return Settings()
