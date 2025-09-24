@@ -1,19 +1,59 @@
+"""
+Custom exceptions for repository-related operations.
+"""
+
+from typing import Iterable, Optional
+
 class RepositoryError(Exception):
-    """Base exception for repository operations."""
-    pass
+    def __init__(self, message: str, *,
+                 fields: Iterable[str] | None = None,
+                 constraint: str | None = None,
+                 error_code: str | None = None):
+
+        super().__init__(message)
+        self.fields = list(fields) if fields else None
+        self.constraint = constraint
+        self.error_code = error_code
+
+    def __str__(self) -> str:
+        base = super().__str__()
+        parts = []
+        if self.fields:
+            parts.append(f"fields: {', '.join(self.fields)}")
+        if self.constraint:
+            parts.append(f"constraint: {self.constraint}")
+        if self.error_code:
+            parts.append(f"code: {self.error_code}")
+        if parts:
+            return f"{base} ({'; '.join(parts)})"
+        return base
 
 
 class NotFoundError(RepositoryError):
-    """Raised when a requested entity is not found."""
     pass
 
 
 class DuplicateError(RepositoryError):
-    """Raised when trying to create a duplicate entity."""
-    pass
+    def __init__(self, message: str, *, fields: Optional[Iterable[str]] = None, constraint: Optional[str] = None):
+        super().__init__(message, fields=fields, constraint=constraint, error_code="duplicate")
 
 
+class InvalidFieldError(RepositoryError):
+    """Raised when the caller passes unexpected/unknown fields to repository methods."""
 
+    def __init__(self, message: str, *, fields: Optional[Iterable[str]] = None):
+        super().__init__(message, fields=fields, error_code="invalid_field")
+
+
+# __all__ is a special variable used to define the public API of a module.
+# When someone uses from your_module import *, only the names listed in __all__ will be imported.
+# You included only the public exception classes, which is exactly what __all__ is meant to do.
+__all__ = [
+    "RepositoryError",
+    "NotFoundError",
+    "DuplicateError",
+    "InvalidFieldError"
+]
 
 
 r"""
