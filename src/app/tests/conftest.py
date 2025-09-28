@@ -15,15 +15,48 @@ Domain-specific fixtures (repositories, models, etc.) are located in:
 This separation keeps conftest.py clean and allows for modular test organization.
 """
 
+from __future__ import annotations
+
+# -------------------------------
+# Standard library imports
+# -------------------------------
 import os
 import sys
 import asyncio
-import pytest
 import logging
-
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import AsyncGenerator
+
+# -------------------------------
+# Early logging tuning (IMPORTANT)
+# -------------------------------
+# Set the level for noisy third-party loggers at import time (before importing modules that
+# might initialize them). This prevents log spam during pytest collection (Faker, SQLAlchemy, etc.).
+#
+# IMPORTANT: keep this block at the very top (before importing app.* modules or any test fixtures
+# that may import heavy libraries).
+NOISY_LOGGERS = (
+    "faker",
+    "faker.factory",
+    "sqlalchemy",
+    "sqlalchemy.engine",
+    "sqlalchemy.engine.Engine",
+    "asyncio",
+    "httpx",
+    "alembic",
+    "urllib3",
+)
+for _name in NOISY_LOGGERS:
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
+# In .env, set SQLALCHEMY_ECHO=false & `ENABLE_SQL_LOGGING=false` to disable SQLAlchemy logging.
+
+# -------------------------------
+# Third-party / project imports
+# -------------------------------
+import pytest
+from pytest import FixtureRequest
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -32,22 +65,79 @@ from sqlalchemy.ext.asyncio import (
     AsyncEngine,
 )
 
+# Import app modules AFTER we have set the noisy logger levels above to avoid
+# noisy output during model/metadata registration.
 from app.database.base import Base
-from app.config import get_settings
 from app.models import user, conversation, message  # noqa: F401 – import to register models with Base.metadata
+from app.config import get_settings
 
-# Configure logging
+# -------------------------------
+# Load settings
+# -------------------------------
+settings = get_settings()
+
+
+# -------------------------------
+# Logging: install application logging early
+# -------------------------------
+# We provide an autouse session-scoped fixture that installs the app logging configuration
+# (your dictConfig from app.core.logging.builder.setup_logging).
+#
+# Rationale:
+# - Installing the logging config early ensures your JSON/color formatters and filters are active
+#   for the whole test session.
+# - We do *not* reconfigure the logger on every test; session-scope is enough and faster.
+from app.core.logging.builder import setup_logging  # local import (app package)
 logger = logging.getLogger(__name__)
 
-# if not logger.hasHandlers():
-#     logging.basicConfig(level=logging.INFO)
+# The `autouse=True` part means that this fixture will be automatically used by pytest 
+# without explicitly including it in your test function parameters.
+@pytest.fixture(scope="session", autouse=True)
+def configure_logging(request: FixtureRequest):
+    """
+    Install application logging for the entire test session.
+
+    What this does:
+      - Calls your `setup_logging(settings)` so the same logging configuration used in the app
+        is installed for tests (formatters, handlers, filters).
+      - Optionally re-attaches pytest's capture handler (caplog) if available — this is useful
+        for tests that rely on `caplog.records`. Re-attaching is optional and guarded because
+        dictConfig can remove pytest's handler.
+      - The noisy libraries were already silenced at import time (above). If you need to adjust
+        verbosity for a specific test run, modify the NOISY_LOGGERS list above or change
+        individual logger levels here.
+    """
+    # Install the application's dictConfig-based logging. This will create handlers,
+    # formatters, filters (request_id filter, etc.) that your app code expects.
+    setup_logging(settings)
+
+    # (Optional) If tests use pytest's caplog and expect caplog.records to be populated,
+    # try to reattach pytest's handler. This is best-effort — different pytest versions
+    # expose plugin internals differently, so guard with try/except.
+    try:
+        caplog_plugin = request.config.pluginmanager.getplugin("logging")
+        handler = getattr(caplog_plugin, "handler", None)
+        if handler:
+            # Add the capture handler back to the root logger so caplog.records works.
+            # NOTE: this may cause duplicate console output (pytest + your handlers). If that
+            # becomes noisy, prefer using capsys/capture for assertions instead of reattaching.
+            logging.getLogger().addHandler(handler)
+    except Exception:
+        # If reattachment fails, we still continue — it's not fatal for the test run.
+        pass
+
+    # If needed, you may silence additional loggers here for the test session:
+    # logging.getLogger("some.noisy.library").setLevel(logging.WARNING)
+
+    yield
+
+    # (session teardown) nothing to clean up for logging specifically.
+
 
 # ------------------------------------------------------------------------------------------------
 # Determining and Logging the Test Database URL for Tests
 # ------------------------------------------------------------------------------------------------
 
-# Load settings
-settings = get_settings()
 
 def safe_log_db_url(db_url: str) -> str:
     """
