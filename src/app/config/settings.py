@@ -32,10 +32,15 @@ class Settings(BaseSettings):
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     LOG_FORMAT: Literal["json", "text"] = "json"
     LOG_TO_STDOUT: bool = True
-    LOG_DIR: Path = Path("/var/log/gds")
+    LOG_DIR: Path = Path("logs/gds")
     LOG_MAX_BYTES: int = 10_000_000  # 10 MB
     LOG_BACKUP_COUNT: int = 5
     ENABLE_SQL_LOGGING: bool = False
+    LOG_USE_QUEUE: bool = False
+    LOG_QUEUE_MAX_SIZE: int = 0            # 0 means unbounded; >0 means bounded
+    LOG_QUEUE_BLOCKING: bool = False      # when bounded: if False, drop records instead of blocking
+    LOG_QUEUE_DROP_WARNING_THRESHOLD: int = 100
+
 
     # Sentry
     SENTRY_DSN: str | None = None
