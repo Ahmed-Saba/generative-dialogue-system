@@ -1,10 +1,9 @@
 from sqlalchemy.sql import select
-from typing import List, Iterable, Set
-from typing import Iterable, List
+from typing import Iterable
 from sqlalchemy import inspect as sa_inspect
 
 
-def find_unknown_model_kwargs(model, kwargs: dict) -> List[str]:
+def find_unknown_model_kwargs(model, kwargs: dict) -> list[str]:
     """
     Return list of unknown kwarg keys that are not part of the model's mapped attributes.
     - model: the SQLAlchemy model class (not instance)
@@ -17,10 +16,7 @@ def find_unknown_model_kwargs(model, kwargs: dict) -> List[str]:
     return [k for k in kwargs.keys() if k not in allowed]
 
 
-# app/repositories/validators.py
-
-
-def get_required_columns(model) -> List[str]:
+def get_required_columns(model) -> list[str]:
     """
     Columns that are NOT NULL and have no server/default and are not simple auto PKs.
     """
@@ -34,7 +30,7 @@ def get_required_columns(model) -> List[str]:
     return cols
 
 
-def get_unique_column_sets(model) -> List[Iterable[str]]:
+def get_unique_column_sets(model) -> list[Iterable[str]]:
     """
     Return a list of unique column sets. Each item is an iterable of column names.
     Covers:
@@ -64,7 +60,7 @@ def get_unique_column_sets(model) -> List[Iterable[str]]:
     return unique_sets
 
 
-async def find_unique_conflicts(db, model, kwargs: dict) -> Set[str]:
+async def find_unique_conflicts(db, model, kwargs: dict) -> set[str]:
     """
     Run pre-insert queries to detect existing rows that would violate unique constraints.
     Returns a set of column names that conflict (best-effort).

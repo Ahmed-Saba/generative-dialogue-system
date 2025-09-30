@@ -80,15 +80,27 @@ def _classify_from_postgres_diag(orig) -> tuple[Type[ConstraintViolationError], 
     diag = getattr(orig, "diag", None)
     constraint_name = getattr(diag, "constraint_name", None) if diag else None
 
-    # print("PGCODE:", pgcode)
-    # print("Constraint Name:", constraint_name)
-
     exception_class = PGCODE_EXCEPTION_MAP.get(pgcode)
+
     if exception_class:
+        # Debug-level diagnostic: includes pgcode and constraint_name.
+        # DEBUG chosen because it may contain implementation/runtime details and
+        # is useful during development / troubleshooting but noisy in production.
+        logger.debug("Postgres integrity diagnostic", 
+                    extra={"pgcode": pgcode, "constraint_name": constraint_name}
+        )  
+        
         return exception_class, constraint_name
 
+    # Unknown pgcode: warn (noticeable) but keep raw diagnostics at DEBUG only.
     logger.warning(
-        f"Unknown Postgres integrity error code encountered: {pgcode}")
+        "Unknown Postgres integrity error code encountered",
+        extra={"pgcode": pgcode, "constraint_name": constraint_name}
+    )
+
+    # If we need raw orig for deeper debugging, it's available at DEBUG:
+    logger.debug("Postgres orig diagnostic (raw)", extra={"orig_repr": repr(orig)})
+
     return UnknownIntegrityError, constraint_name
 
 
@@ -110,7 +122,10 @@ def _classify_from_generic_message(msg: str) -> tuple[Type[ConstraintViolationEr
     if _match_any(normalized, ["check constraint", "check failed"]):
         return CheckConstraintError, None
 
-    logger.warning(f"Unknown integrity error message encountered: {msg}")
+    # Unknown generic message - warn so it surfaces to monitoring
+    logger.warning("Unknown integrity error message encountered", extra={"message_snippet": (msg or "")[:200]})
+    # Keep full message at DEBUG for developers (don't expose raw DB messages at INFO)
+    logger.debug("Unknown integrity raw message", extra={"raw": msg})
     return UnknownIntegrityError, None
 
 

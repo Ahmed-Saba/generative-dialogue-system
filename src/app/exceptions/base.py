@@ -2,21 +2,41 @@
 Custom exceptions for repository-related operations.
 """
 
-from typing import Iterable, Optional
+from typing import Iterable
+
+# canonical repository-level exception
 
 class RepositoryError(Exception):
-    def __init__(self, message: str, *,
-                 fields: Iterable[str] | None = None,
-                 constraint: str | None = None,
-                 error_code: str | None = None):
+    """
+    Base exception for repository/service errors.
 
+    - message: human-friendly message (safe to show to clients)
+    - fields: optional list of field names related to the error (e.g., ['email'])
+    - constraint: optional DB constraint name or identifier (for logs only)
+    - error_code: canonical short code (e.g., 'duplicate', 'invalid_field') used by clients
+    """
+
+    # Map canonical error_code -> default HTTP status.
+    # You can extend these codes as you add more errors.
+    ERROR_CODE_TO_STATUS = {
+        "duplicate": 409,
+        "invalid_field": 422,
+        "not_found": 404,
+        "invalid_input": 422,
+        # fallback: default to 400 for general repository errors
+    }
+
+    def __init__(self, message: str, *, fields: Iterable[str] | None = None,
+                 constraint: str | None = None, error_code: str | None = None):
         super().__init__(message)
+        self.message = message  # user-friendly message
         self.fields = list(fields) if fields else None
         self.constraint = constraint
         self.error_code = error_code
 
     def __str__(self) -> str:
-        base = super().__str__()
+        # keep existing behavior for logs / tests
+        base = self.message
         parts = []
         if self.fields:
             parts.append(f"fields: {', '.join(self.fields)}")
@@ -28,22 +48,63 @@ class RepositoryError(Exception):
             return f"{base} ({'; '.join(parts)})"
         return base
 
+    # ------------------------
+    # New: structured payload for API responses
+    # ------------------------
+    def to_payload(self) -> dict:
+        """
+        Return a JSON-serializable dict suitable for HTTP responses.
+        Standard shape:
+            {
+                "detail": "A human-friendly message",
+                "code": "duplicate",           # optional canonical code
+                "fields": ["username"],        # optional list for client usage
+                # note: we intentionally do NOT include `constraint` value in payload
+            }
+        Keep the payload concise and free of raw DB messages/values.
+        """
+        payload = {"detail": self.message}
+        if self.error_code:
+            payload["code"] = self.error_code
+        if self.fields:
+            payload["fields"] = list(self.fields)
+        return payload
+
+    def http_status(self) -> int:
+        """
+        Return the HTTP status code that should accompany this error.
+        - If the exception has an error_code that will be looked up in ERROR_CODE_TO_STATUS.
+        - Otherwise default to 400 (Bad Request).
+        """
+        if self.error_code:
+            return self.ERROR_CODE_TO_STATUS.get(self.error_code, 400)
+        # default
+        return 400
+
+
+# Subclasses keep their existing constructors, but inherit to_payload() and http_status()
 
 class NotFoundError(RepositoryError):
-    pass
+    def __init__(self, message: str = "Not found", *, fields: Iterable[str] | None = None):
+        # use canonical error code to make HTTP mapping automatic
+        super().__init__(message, fields=fields, error_code="not_found")
 
 
 class DuplicateError(RepositoryError):
-    def __init__(self, message: str, *, fields: Optional[Iterable[str]] = None, constraint: Optional[str] = None):
+    def __init__(self, message: str, *, fields: Iterable[str] | None = None, constraint: str | None = None):
+        # set canonical error_code 'duplicate' so http_status() -> 409
         super().__init__(message, fields=fields, constraint=constraint, error_code="duplicate")
 
 
 class InvalidFieldError(RepositoryError):
     """Raised when the caller passes unexpected/unknown fields to repository methods."""
 
-    def __init__(self, message: str, *, fields: Optional[Iterable[str]] = None):
+    def __init__(self, message: str, *, fields: Iterable[str] | None = None):
         super().__init__(message, fields=fields, error_code="invalid_field")
 
+
+# class UnauthorizedConversationAccess(Exception):
+#     pass
 
 # __all__ is a special variable used to define the public API of a module.
 # When someone uses from your_module import *, only the names listed in __all__ will be imported.

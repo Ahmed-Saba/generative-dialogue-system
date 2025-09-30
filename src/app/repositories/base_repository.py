@@ -22,8 +22,9 @@ from app.exceptions.base import (
 )
 
 from app.exceptions.mapper import db_error_handler
-from app.exceptions.validators import find_unknown_model_kwargs, get_required_columns, find_unique_conflicts
+from app.validators.exception_validators import find_unknown_model_kwargs, get_required_columns, find_unique_conflicts
 
+import time
 from typing import TypeVar, Generic, Type, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,23 @@ ModelType = TypeVar("ModelType", bound=Base)
 
 # Setup logging
 logger = logging.getLogger(__name__)
+
+
+# helper: mask sensitive keys if you ever need to log values (avoid logging raw secrets)
+_SENSITIVE_KEYS = {"password", "secret", "token", "access_token", "refresh_token", "ssn"}
+
+def _mask_sensitive(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Return a shallow copy with sensitive values replaced by '***'.
+    Only use for low-volume debug logs; prefer logging keys or counts otherwise.
+    """
+    out = {}
+    for k, v in payload.items():
+        if k.lower() in _SENSITIVE_KEYS:
+            out[k] = "***"
+        else:
+            out[k] = v
+    return out
 
 
 
@@ -75,9 +93,37 @@ class BaseRepository(Generic[ModelType]):
     # =================================================================================================================
 
     async def create(self, **kwargs) -> ModelType:
+        """
+        Create an entity with validation + DB write. Logging:
+        - DEBUG: start event with model name and provided keys (not values).
+        - INFO: expected domain errors (invalid fields, missing required, duplicate).
+        - INFO: success event with created id and duration_ms.
+        - EXCEPTION: unexpected errors with stack trace.
+        """
+        # debug: show operation start and which keys were provided (safe)
+        logger.debug(
+            "repo.create.start",
+            extra={
+                "model": self.model.__name__,
+                "operation": "create",
+                # list keys only (avoids sensitive values), helpful to spot incorrect callers
+                "provided_keys": sorted(list(kwargs.keys())),
+            },
+        )
+
+
         # 1) unknown fields check (existing)
         unknown = find_unknown_model_kwargs(self.model, kwargs)
         if unknown:
+            # INFO: client-level validation error; expected input problem -> no stack trace
+            logger.info(
+                "repo.create.invalid_fields",
+                extra={
+                    "model": self.model.__name__,
+                    "operation": "create",
+                    "invalid_fields": sorted(unknown),
+                },
+            )
             raise InvalidFieldError(f"Unknown field(s) for {self.model.__name__}: {', '.join(unknown)}", fields=unknown)
 
         # 2) required fields check (detect all missing)
@@ -85,19 +131,52 @@ class BaseRepository(Generic[ModelType]):
         # consider missing if not provided or explicitly None (since NOT NULL)
         missing = [c for c in required_cols if (c not in kwargs) or (kwargs.get(c) is None)]
         if missing:
+            # INFO: missing input - expected client error
+            logger.info(
+                "repo.create.missing_required",
+                extra={
+                    "model": self.model.__name__,
+                    "operation": "create",
+                    "missing_fields": sorted(missing),
+                },
+            )
             raise RepositoryError(f"Missing required field(s): {', '.join(missing)} for {self.model.__name__}", fields=missing)
 
         # 3) pre-check unique conflicts (best-effort)
         conflicts = await find_unique_conflicts(self.db, self.model, kwargs)
         if conflicts:
+            # INFO: duplicate detected during pre-check. Provide fields for observability.
+            logger.info(
+                "repo.create.duplicate_precheck",
+                extra={
+                    "model": self.model.__name__,
+                    "operation": "create",
+                    "conflict_fields": sorted(conflicts),
+                },
+            )
             raise DuplicateError(f"{self.model.__name__} already exists for field(s): {', '.join(sorted(conflicts))}", fields=sorted(conflicts))
 
         # 4) Actual DB write with fallback mapping on integrity errors
+        start = time.perf_counter()
+
         async with db_error_handler(self.db, self.model.__name__):
             entity = self.model(**kwargs)
             self.db.add(entity)
             await self.db.flush()
             await self.db.refresh(entity)
+                
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            # INFO: creation success; include id and duration. Avoid including full entity data.
+            logger.info(
+                "repo.create.success",
+                extra={
+                    "model": self.model.__name__,
+                    "operation": "create",
+                    "id": getattr(entity, "id", None),
+                    "duration_ms": duration_ms,
+                },
+            )
+
             return entity
 
         # ------------------------------------------------------------------------

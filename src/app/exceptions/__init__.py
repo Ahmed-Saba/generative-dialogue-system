@@ -1,6 +1,8 @@
 
 # app/
 # │
+# │── core/logging/
+# │
 # ├── exceptions/
 # │   ├── __init__.py                
 # │   ├── base.py                    # App-level errors (e.g. RepositoryError, DuplicateError)
